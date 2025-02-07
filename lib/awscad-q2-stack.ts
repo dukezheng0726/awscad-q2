@@ -13,29 +13,23 @@ export class AwscadQ2Stack extends cdk.Stack {
     super(scope, id, props);
 
     // dynamodb
-    const table = new dynamodb.TableV2(this, 'q2_dynamodb_table', {
-      tableName: 'q2_table',
-      partitionKey: { name: 'id', type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: 'name', type: dynamodb.AttributeType.STRING },
+    const table = new dynamodb.Table(this, 'ItemsTable', {
+      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.DESTROY, 
     });
 
     // iam-role  lamdba-dynamodb
-    const lambdaRole = new iam.Role(this, 'lambda_dynamodb', {
-      roleName: 'lambda-dynamodb',
+    const lambdaRole = new iam.Role(this, 'LambdaExecutionRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'),
-      ],
     });
+    lambdaRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'));
+    lambdaRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'));
 
     //lambda
-    const lambdaFunction = new lambda.Function(this, 'q2_lambda', {
-      functionName: 'q2-lambda',
+    const lambdaFunction = new lambda.Function(this, 'DynamoDBLambdaHandler', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, 'lambda')),
+      code: lambda.Code.fromAsset('lambda'),
       role: lambdaRole,
       environment: {
         TABLE_NAME: table.tableName,
@@ -43,18 +37,16 @@ export class AwscadQ2Stack extends cdk.Stack {
     });
 
     //api gateway
-    const api = new apigateway.RestApi(this, 'q2_api_gateway', {
-      restApiName: 'Q2 API',
-      description: 'API Gateway for Lambda and DynamoDB',
+    const api = new apigateway.RestApi(this, 'DynamoDBApi', {
+      restApiName: 'DynamoDB Service',
     });
 
-    
-    const items = api.root.addResource('items');
-    items.addMethod('POST', new apigateway.LambdaIntegration(lambdaFunction));
-    
-    const item = items.addResource('{id}');
-    item.addMethod('GET', new apigateway.LambdaIntegration(lambdaFunction));
+    const lambdaIntegration = new apigateway.LambdaIntegration(lambdaFunction);
+    const items = api.root.addResource('{id}');
+    items.addMethod('POST', lambdaIntegration);
+    items.addMethod('GET', lambdaIntegration);
 
+    
     table.grantReadWriteData(lambdaFunction);
 
   }
